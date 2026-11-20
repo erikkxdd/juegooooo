@@ -1,0 +1,11 @@
+node_modules/
+.cache/
+.npm/
+*.log
+*.zip
+*.rar
+uploads/
+Descarga-Fase-3A/
+entregables/
+web-publicable/
+# dist/ se mantiene visible para su copia o despliegue manual.

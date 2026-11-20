@@ -9,9 +9,9 @@ export class FinalScreen{
  close(){clearInterval(this.typeTimer);clearTimeout(this.buttonTimer);this.panel.hidden=true;this.panel.replaceChildren();}
  caught(retry:()=>void){
   this.close();this.panel.className='caught-screen';this.panel.hidden=false;
-  this.panel.innerHTML='<div class="tape-snow"></div><div class="caught-face" aria-hidden="true"></div><div class="final-content" hidden><p>SEÑAL PERDIDA</p><button type="button">Reintentar desde las 21:50</button></div>';
+  this.panel.innerHTML='<div class="tape-snow"></div><div class="final-content" hidden><p>GAME OVER · SEÑAL PERDIDA</p><button type="button">Reintentar desde las 21:50</button></div>';
   this.panel.querySelector('button')!.onclick=retry;
-  this.buttonTimer=window.setTimeout(()=>{const content=this.panel.querySelector<HTMLElement>('.final-content')!;content.hidden=false;content.querySelector('button')!.focus();},870);
+  this.buttonTimer=window.setTimeout(()=>{const content=this.panel.querySelector<HTMLElement>('.final-content')!;content.hidden=false;content.querySelector('button')!.focus();},550);
  }
  ending(replay:()=>void){
   this.close();this.panel.className='ending-screen';this.panel.hidden=false;

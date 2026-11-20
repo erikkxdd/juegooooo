@@ -7,10 +7,13 @@ type Mat=T.Material; type Bounds=[number,number,number,number];
 export type Room={name:string,b:Bounds,mat:Mat,floor?:string,light?:T.PointLight};
 export type Target={mesh:T.Object3D,kind?:'door'|'switch',label:()=>string,use:()=>void};
 type Door={hinge:T.Group,leaf:T.Mesh,w:number,angle:number,closed:number,open:boolean};
-const H=2.55,W=.13;
+const originalHeight=2.55,addedHeight=.45,W=.13;
+export const CEILING_HEIGHT=originalHeight+addedHeight;
+const H=CEILING_HEIGHT;
 export const HOUSE_PLAN_SCALE=1.22;
 export class HouseBuilder{
  rooms:Room[]=[]; obstacles:Bounds[]=[]; doors:Door[]=[]; targets:Target[]=[];
+ kidsDoor!:Door;
  private raised=new Map<number,number>();
  private circuits=new Map<Room,{enabled:boolean;apply:()=>void}>();
  setPower(roomName:string,enabled:boolean){const r=this.rooms.find(r=>r.name===roomName);const c=r&&this.circuits.get(r);if(c&&c.enabled!==enabled){c.enabled=enabled;c.apply();}}
@@ -36,7 +39,7 @@ export class HouseBuilder{
  this.place(0,0,0,()=>{
  const kids=this.room('Dormitorio de los niños',[-4.42,-.92,-2.75,1.43],solid(0x333630,.92),'kidsFloor');
   this.edges(kids,{R:[[-1.63,-.69]],L:[[-1.7,.25]]},solid(0x486164,.92));
-  // El vano infantil queda abierto: sin hoja, marco, bisagra ni objetivo de interacción.
+  this.kidsDoor=this.door(-.92,-1.63,.94,'z',-1,false);
   this.window(-4.42,-1.7,.25,'z');
   this.switch(kids,-1.03,-.35,'z');this.furnishKids();
  },true);
@@ -51,7 +54,7 @@ export class HouseBuilder{
   const bath2=this.room('Segundo baño',[.92,3.35,-5.6,-3.05],photo('wallStone',3,4),'kitchenFloor');
   this.edges(side,{S:[[-.25,.80]],N:[[-.56,.53]],R:[[-4.87,-3.95]]});
   this.edges(bath2,{L:[[-4.87,-3.95]]},undefined,undefined,'S');
-  this.door(.92,-4.87,.92,'z',-1,false);this.door(-.56,-5.6,1.09,'x',-1,false);
+  this.door(.92,-4.87,.92,'z',-1,false);this.doorFrame(-.56,-5.6,1.09,'x');
   this.switch(side,-.83,-4.5,'z');this.switch(bath2,1.03,-3.72,'z');
   this.place(0,parentShift,0,()=>{
    const parents=this.room('Dormitorio de los padres',[-2.65,.92,-9.35,-5.6],solid(0x363530,.92),'parentsFloor');
@@ -109,21 +112,24 @@ export class HouseBuilder{
   this.scene.updateMatrixWorld(true);const point=new T.Vector3();
   for(const mesh of this.scene.children){
    if(!(mesh instanceof T.Mesh))continue;
-   const {floorPeriod:period,scaleFloorUV,wallRepeatAxis}=mesh.userData;
+   const {floorPeriod:period,scaleFloorUV,wallRepeatAxis,wallHeight}=mesh.userData;
    if(!period&&!scaleFloorUV&&!wallRepeatAxis)continue;
    const geo=mesh.geometry.clone(),pos=geo.getAttribute('position'),uv=geo.getAttribute('uv');
    for(let i=0;i<pos.count;i++){
     if(period){point.fromBufferAttribute(pos,i).applyMatrix4(mesh.matrixWorld);uv.setXY(i,-point.x*HOUSE_PLAN_SCALE/period,-point.z*HOUSE_PLAN_SCALE/period);}
-    else uv.setXY(i,uv.getX(i)*HOUSE_PLAN_SCALE,uv.getY(i)*(scaleFloorUV?HOUSE_PLAN_SCALE:1));
+    else uv.setXY(i,uv.getX(i)*HOUSE_PLAN_SCALE,uv.getY(i)*(wallHeight??(scaleFloorUV?HOUSE_PLAN_SCALE:1)));
    }
    uv.needsUpdate=true;mesh.geometry=geo;
   }
  }
 
- edges(r:Room,open:Partial<Record<'L'|'R'|'N'|'S',[number,number][]>>,accent?:Mat,omit?:'L'|'R'|'N'|'S',center?:'L'|'R'|'N'|'S'){const [x,X,z,Z]=r.b;for(const side of ['L','R','N','S'] as const){if(side===omit)continue;const axis=side==='L'||side==='R'?'z':'x',p=side==='L'?x:side==='R'?X:side==='N'?z:Z;const a=axis==='z'?z:x,b=axis==='z'?Z:X;let last=a;const upper=(side==='R'&&r.name==='Salón')||side==='L'&&['Cocina','Dormitorio de los niños'].includes(r.name)||side==='N'&&r.name==='Dormitorio de los padres';const mat=side==='S'&&accent?accent:r.mat;const offset=side===center?0:(side==='L'||side==='N'?-1:1)*.034;const slab=(s:number,e:number,y:number,h:number,m:Mat,block=false,depth=W)=>{if(e-s<.001)return; const c=(s+e)/2;const slab=axis==='z'?this.box(p+offset,y,c,depth,h,e-s,m,block):this.box(c,y,p+offset,e-s,h,depth,m,block);if(m===mat&&depth===W)slab.userData.wallRepeatAxis=axis;return slab;};const full=(s:number,e:number)=>{slab(s,e,H/2,H,mat,true);slab(s,e,.062,.124,this.wood,false,.162);slab(s,e,.116,.022,this.wood,false,.173);slab(s,e,.031,.017,this.wood,false,.171);slab(s,e,H-.05,.09,this.cream,false,.16);};for(const [s,e] of open[side]??[]){full(last,s);slab(s,e,2.34,.42,mat);if(upper&&r.name!=='Cocina')slab(s,e,.47,.94,mat,true);last=e;}full(last,b);}}
- door(x:number,z:number,w:number,axis:'x'|'z',dir:number,open:boolean,glass=false,exit=false){const point=(u:number,y:number,depth:number,h:number,m:Mat)=>axis==='x'?this.box(x+u,y,z,depth,h,.23,m):this.box(x,y,z+u,.23,h,depth,m);point(-.015,1.06,.09,2.12,this.wood);point(w+.015,1.06,.09,2.12,this.wood);point(w/2,2.10,w+.1,.11,this.wood);
- for(const u of [-.052,w+.052])point(u,1.058,.032,2.12,photo('door',1,2));point(w/2,2.146,w+.14,.025,this.wood);
- const hinge=new T.Group();hinge.position.set(x,0,z);this.scene.add(hinge);const angle=axis==='z'?-Math.PI/2:0;hinge.rotation.y=angle+(open?dir*1.48:0);const leaf=this.box(w/2,1.045,0,w-.055,2.04,.057,this.wood,false,hinge);if(glass){leaf.material=new T.MeshStandardMaterial({transparent:true,opacity:.18,depthWrite:false,color:0x9aa7a7});leaf.castShadow=false;for(const u of [.05,w-.05,w/2])this.box(u,1.045,0,.10,2.04,.077,this.wood,false,hinge);for(const y of [.18,.74,1.32,1.99])this.box(w/2,y,0,w-.05,y===.18?.32:.085,.081,this.wood,false,hinge);}else{for(const y of [.43,1.38]){this.box(w/2,y,0,w-.23,y>.5?1.04:.52,.079,this.wood,false,hinge);this.box(w/2,y,0,w-.30,y>.5?.94:.42,.09,this.wood,false,hinge);}}
+ edges(r:Room,open:Partial<Record<'L'|'R'|'N'|'S',[number,number][]>>,accent?:Mat,omit?:'L'|'R'|'N'|'S',center?:'L'|'R'|'N'|'S'){const [x,X,z,Z]=r.b;for(const side of ['L','R','N','S'] as const){if(side===omit)continue;const axis=side==='L'||side==='R'?'z':'x',p=side==='L'?x:side==='R'?X:side==='N'?z:Z;const a=axis==='z'?z:x,b=axis==='z'?Z:X;let last=a;const upper=(side==='R'&&r.name==='Salón')||side==='L'&&['Cocina','Dormitorio de los niños'].includes(r.name)||side==='N'&&r.name==='Dormitorio de los padres';const mat=side==='S'&&accent?accent:r.mat;const offset=side===center?0:(side==='L'||side==='N'?-1:1)*.034;const slab=(s:number,e:number,y:number,h:number,m:Mat,block=false,depth=W)=>{if(e-s<.001)return; const c=(s+e)/2;const slab=axis==='z'?this.box(p+offset,y,c,depth,h,e-s,m,block):this.box(c,y,p+offset,e-s,h,depth,m,block);if(m===mat&&depth===W){slab.userData.wallRepeatAxis=axis;slab.userData.wallHeight=h/(h===H?originalHeight:h>addedHeight&&Math.abs(y+h/2-H)<.001?h-addedHeight:h);}return slab;};const full=(s:number,e:number)=>{slab(s,e,H/2,H,mat,true);slab(s,e,.062,.124,this.wood,false,.162);slab(s,e,.116,.022,this.wood,false,.173);slab(s,e,.031,.017,this.wood,false,.171);slab(s,e,H-.05,.09,this.cream,false,.16);};for(const [s,e] of open[side]??[]){full(last,s);slab(s,e,2.34+addedHeight,.42,mat);if(upper){slab(s,e,2.13+addedHeight/2,addedHeight,mat);if(r.name!=='Cocina')slab(s,e,.47,.94,mat,true);}last=e;}full(last,b);}}
+ doorFrame(x:number,z:number,w:number,axis:'x'|'z'){const point=(u:number,y:number,depth:number,h:number,m:Mat)=>axis==='x'?this.box(x+u,y,z,depth,h,.23,m):this.box(x,y,z+u,.23,h,depth,m);point(-.015,1.06+addedHeight/2,.09,2.12+addedHeight,this.wood);point(w+.015,1.06+addedHeight/2,.09,2.12+addedHeight,this.wood);point(w/2,2.10+addedHeight,w+.1,.11,this.wood);
+ for(const u of [-.052,w+.052])point(u,1.058+addedHeight/2,.032,2.12+addedHeight,photo('door',1,2));point(w/2,2.146+addedHeight,w+.14,.025,this.wood);
+ const transom=point(w/2,2.077+addedHeight/2,w,.15+addedHeight,this.wood);transom.userData.doorTransom=true;
+ }
+ door(x:number,z:number,w:number,axis:'x'|'z',dir:number,open:boolean,glass=false,exit=false){this.doorFrame(x,z,w,axis);
+ const hinge=new T.Group();hinge.position.set(x,0,z);this.scene.add(hinge);const angle=axis==='z'?-Math.PI/2:0;hinge.rotation.y=angle+(open?dir*1.48:0);const leaf=this.box(w/2,1.045,0,w-.055,2.04,.057,this.wood,false,hinge);leaf.userData.doorLeaf=true;if(glass){leaf.material=new T.MeshStandardMaterial({transparent:true,opacity:.18,depthWrite:false,color:0x9aa7a7});leaf.castShadow=false;for(const u of [.05,w-.05,w/2])this.box(u,1.045,0,.10,2.04,.077,this.wood,false,hinge);for(const y of [.18,.74,1.32,1.99])this.box(w/2,y,0,w-.05,y===.18?.32:.085,.081,this.wood,false,hinge);}else{for(const y of [.43,1.38]){this.box(w/2,y,0,w-.23,y>.5?1.04:.52,.079,this.wood,false,hinge);this.box(w/2,y,0,w-.30,y>.5?.94:.42,.09,this.wood,false,hinge);}}
  for(const s of [-1,1]){this.box(w-.14,1.04,s*.051,.052,.158,.024,brass,false,hinge);
   tube(hinge,[[w-.132,1.071,s*.055],[w-.134,1.071,s*.088],[w-.16,1.071,s*.098],[w-.246,1.067,s*.093]],.013,brass);
   const lock=cylinder(hinge,w-.14,.997,s*.066,.014,.012,chrome);lock.rotation.x=Math.PI/2;
@@ -132,7 +138,7 @@ export class HouseBuilder{
  for(const y of [.35,1.75]){cylinder(hinge,.019,y,.046,.014,.11,brass);this.box(.043,y,.037,.052,.071,.013,brass,false,hinge);}
  if(exit){for(const y of [1.25,1.287]){const bolt=this.box(w-.169,y,-.067,.063,.012,.017,chrome,false,hinge);bolt.userData.storyAction="latch";}const peephole=cylinder(hinge,w/2,1.56,-.057,.019,.017,brass);peephole.rotation.x=Math.PI/2;const lens=cylinder(hinge,w/2,1.56,-.068,.010,.007,rubber);lens.rotation.x=Math.PI/2;peephole.userData.storyAction="peephole";lens.userData.storyAction="peephole";lens.userData.inspect="No se ve a nadie en el rellano.";lens.userData.inspectLabel="Mirar por la mirilla";const latch=this.box(w-.10,1.28,-.061,.081,.051,.026,brass,false,hinge);latch.userData.storyAction="latch";}
 
- const d={hinge,leaf,w,angle:angle+dir*1.48,closed:angle,open};this.doors.push(d);if(!exit)this.targets.push({mesh:hinge,kind:'door',label:()=>d.open?'Cerrar puerta':'Abrir puerta',use:()=>{d.open=!d.open;}});else d.angle=angle;
+ const d={hinge,leaf,w,angle:angle+dir*1.48,closed:angle,open};this.doors.push(d);if(!exit)this.targets.push({mesh:hinge,kind:'door',label:()=>d.open?'Cerrar puerta':'Abrir puerta',use:()=>{d.open=!d.open;}});else d.angle=angle;return d;
  }
  window(p:number,a:number,b:number,axis:'x'|'z',full=false){const s=(u:number,y:number,w:number,h:number,d:number,m:Mat,block=false)=>axis==='z'?this.box(p,y,u,d,h,w,m,block):this.box(u,y,p,w,h,d,m,block);const c=(a+b)/2,base=full?.05:.94,top=2.13,h=top-base;s(c,(top+base)/2,b-a,h,.075,new T.MeshBasicMaterial({color:0x161d2c,transparent:true,opacity:.16,depthWrite:false}),true)!.castShadow=false;for(const u of [a,c,b])s(u,(base+top)/2,.067,h,.15,this.white);for(const y of [base,top])s(c,y,b-a+.09,.07,.17,this.white);for(let y=top-.10;y>base+.24;y-=.075){const slat=s(c,y,b-a-.04,.059,.105,this.dark);if(full)slat.userData.balconySlat=true;} if(!full)for(const u of [a-.12,b+.12])s(u,1.35,.24,2.28,.20,photo('curtain',1,2));}
  switch(r:Room,x:number,z:number,axis:'x'|'z',on=false){const [a,b,c,d]=r.b;const light=new T.PointLight(0xffc78f,on?17:0,Math.min(7,Math.max(b-a,d-c)+1.8),2);light.position.set((a+b)/2,2.30,(c+d)/2);this.scene.add(light);r.light=light;const bulb=new T.MeshStandardMaterial({color:0xd9cbb9,emissive:0xffc091,emissiveIntensity:on?.7:0,roughness:.9});this.rounded(light.position.x,2.43,light.position.z,.32,.16,.32,bulb);const obj=this.box(x,1.22,z,axis==='x'?.105:.044,.115,axis==='x'?.044:.105,this.white);if(r.name!=='Salón'&&r.name!=='Segundo pasillo')this.outlet(x,1.22,z,axis,r.name==='Cocina'?.22:.16);const rock=this.box(0,0,0,axis==='x'?.065:.055,.067,axis==='x'?.055:.065,this.cream,false,obj);let requested=on;const circuit={enabled:true,apply:()=>{const lit=requested&&circuit.enabled;light.intensity=lit?17:0;bulb.emissiveIntensity=lit?.7:0;rock.rotation[axis]=requested?.17:-.17;if(r.name==='Salón'&&this.diningLamp){this.diningLamp.light.intensity=lit?2.8:0;this.diningLamp.bulb.emissiveIntensity=lit?.52:0;}}};this.circuits.set(r,circuit);circuit.apply();this.targets.push({mesh:obj,kind:'switch',label:()=>requested?'Apagar luz':'Encender luz',use:()=>{requested=!requested;circuit.apply();}});}
@@ -414,16 +420,15 @@ export class HouseBuilder{
   box(lid,.005,.061,0,.002,.104,.149,display);
   for(let i=0;i<3;i++)box(lid,.0063,.079-i*.012,-.018,.001,.002,.064-i*.012,solid(0x444e61,.62));
   box(group,-3.917,top+.007,.030,.046,.014,.027,matte);
-  const cube=new T.Group(),size=.041,third=size/3;cube.position.set(-3.916,top+size/2,-.041);cube.rotation.y=.24;group.add(cube);
+  const cube=new T.Group(),size=.063,third=size/3;cube.name="Cubo de Rubik 3×3";cube.position.set(-3.916,top+size/2,-.055);cube.rotation.y=.42;group.add(cube);
   box(cube,0,0,0,size,size,size,ink);
-  const palette=[0xe9e6d6,0xffcf35,0xb5292b,0xe2822d,0x3073b4,0x37894f].map(c=>solid(c,.68));
+  const palette=[0xf5f4ec,0xffda24,0xe12230,0xff791d,0x165ad9,0x22ae57].map(c=>solid(c,.68));
   const faces=[[2,0,4,1,2,5,4,0,3],[5,4,3,0,3,1,2,5,2],[1,5,3,0,0,4,3,1,5],[4,1,0,5,1,2,0,3,4],[1,2,4,5,4,0,3,2,1],[2,5,1,3,5,3,4,2,0]];
-  for(let f=0;f<6;f++)for(let n=0;n<9;n++){const a=(n%3-1)*third,b=(Math.floor(n/3)-1)*third,d=(f%2?1:-1)*(size/2+.0005),tile=third-.0021,m=palette[faces[f][n]];if(f<2)box(cube,d,a,b,.001,tile,tile,m);else if(f<4)box(cube,a,d,b,tile,.001,tile,m);else box(cube,a,b,d,tile,tile,.001,m);}
+  for(let f=0;f<6;f++)for(let n=0;n<9;n++){const a=(n%3-1)*third,b=(Math.floor(n/3)-1)*third,d=(f%2?1:-1)*(size/2+.0005),tile=third-.0026,m=palette[faces[f][n]];if(f<2)box(cube,d,a,b,.001,tile,tile,m);else if(f<4)box(cube,a,d,b,tile,.001,tile,m);else box(cube,a,b,d,tile,tile,.001,m);}
   for(const [i,color] of [0x3e515e,0x794643].entries()){
    const notes=new T.Group();notes.position.set(-4.13+i*.016,top+i*.013,-1.417+i*.019);notes.rotation.y=i?.14:-.12;group.add(notes);
    const cover=solid(color,.87);box(notes,0,.006,0,.127,.012,.105,paper);for(const y of [.001,.012])box(notes,0,y,0,.132,.002,.11,cover);box(notes,0,.010,-.051,.13,.004,.011,cover);
   }
-  const can=cylinder(group,-3.918,top+.035,-1.454,.024,.07,solid(0x953835,.56,.19));can.name='Lata';cylinder(group,-3.918,top+.071,-1.454,.022,.003,chrome);cylinder(group,-3.918,top+.073,-1.454,.007,.002,matte);
  }
  kidsPhotoObjects(){
  const b=this.box.bind(this),q=this.rounded.bind(this), cream=solid(0xd1ba95,.96), brown=solid(0x93613d,.96), black=solid(0x211a17,.79), red=solid(0x873139,.96), blue=solid(0x293743,.96);
@@ -513,8 +518,10 @@ export class HouseBuilder{
   // 09 solo documenta la entrada. La ducha conserva la posición indicada al fondo a la derecha.
   const inspectStart=this.scene.children.length;const x=2.639,z=.888,glass=new T.MeshStandardMaterial({color:0xb5c8d2,roughness:.18,transparent:true,opacity:.19,depthWrite:false});
   b(x,.019,z,.891,.038,.867,porcelain);
-  for(const X of [x-.43,x+.43]){b(X,.043,z,.022,.021,.862,porcelain,true);this.raised.set(this.obstacles.length-1,.054);}
+  b(x-.43,.043,z,.022,.021,.862,porcelain);b(x+.43,.043,z,.022,.021,.862,porcelain,true);this.raised.set(this.obstacles.length-1,.054);
   for(const Z of [z-.421,z+.421]){b(x,.043,Z,.877,.021,.018,porcelain,true);this.raised.set(this.obstacles.length-1,.054);}
+  // Dos costados sólidos; el izquierdo deja un hueco de acceso junto al fondo.
+  for(const [X,Z,depth] of [[x-.439,.603,.296],[x+.439,z,.865]]){const side=b(X,H/2,Z,.055,H,depth,photo('wallStone',3,4),true);side.userData.wallRepeatAxis='z';side.userData.wallHeight=H/originalHeight;}
   const drain=cylinder(this.scene,x,.043,z+.10,.043,.008,chrome);drain.castShadow=false;for(let i=0;i<5;i++)b(x-.023+i*.011,.048,z+.10,.004,.003,.044,rubber);
   b(x,1.029,.472,.878,1.932,.015,glass,true);for(const X of [x-.438,x+.438])b(X,1.028,.472,.024,1.948,.023,chrome);
   b(x,2.001,.472,.888,.024,.024,chrome);b(x,.057,.472,.888,.023,.024,chrome);b(x-.421,1.04,.484,.021,.173,.044,chrome);
@@ -544,6 +551,7 @@ export class HouseBuilder{
  fabric(this.scene,1.875,.918,-5.469,.348,.361,cream,true);fabric(this.scene,1.743,.932,-5.452,.121,.336,white,true);
  }
  blocked(x:number,z:number,r=.18,height?:number,feet=0){if(!this.rooms.some(({b:[a,b,c,d]})=>x>=a&&x<=b&&z>=c&&z<=d))return true;for(let i=0;i<this.obstacles.length;i++){const [a,b,c,d]=this.obstacles[i];const top=this.raised.get(i);if(top!==undefined&&feet>=top-.002)continue;const dx=x-Math.max(a,Math.min(b,x)),dz=z-Math.max(c,Math.min(d,z));if(dx*dx+dz*dz<r*r)return true;}if(height!==undefined&&feet+height>.775){const k=HOUSE_PLAN_SCALE,dx=x-Math.max(2.15*k,Math.min(4.13*k,x)),dz=z-Math.max(-2.56*k,Math.min(-1.66*k,z));if(dx*dx+dz*dz<r*r)return true;}return this.doors.some(d=>this.doorHit(d,x,z,r));}
+ ceilingAt(x:number,z:number){return this.rooms.some(({b:[a,b,c,d]})=>x>=a&&x<=b&&z>=c&&z<=d)?H:Infinity;}
  support(x:number,z:number,r:number,ceiling:number){let y=0;for(const [i,top] of this.raised){if(top>ceiling+.004)continue;const [a,b,c,d]=this.obstacles[i],dx=x-Math.max(a,Math.min(b,x)),dz=z-Math.max(c,Math.min(d,z));if(dx*dx+dz*dz<r*r)y=Math.max(y,top);}return y;}
  doorHit(d:Door,x:number,z:number,r=.18){const k=HOUSE_PLAN_SCALE,dx=x-d.hinge.position.x*k,dz=z-d.hinge.position.z*k,a=d.hinge.rotation.y;const u=(dx*Math.cos(a)-dz*Math.sin(a))*Math.sign(d.hinge.scale.x),v=dx*Math.sin(a)+dz*Math.cos(a);return Math.abs(v)<r+.04*k&&u> -r&&u<d.w*k+r;}
  update(dt:number,x:number,z:number){for(const d of this.doors){const prev=d.hinge.rotation.y;d.hinge.rotation.y=T.MathUtils.damp(prev,d.open?d.angle:d.closed,8,dt);if(this.doorHit(d,x,z))d.hinge.rotation.y=prev;}}

@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {HOUSE_PLAN_SCALE, type HouseBuilder} from '../world/HouseBuilder';
 import {characterTexture,shape} from './YasminPlayer';
+import {underLoft} from '../story/Stealth';
 export type LolaState='FOLLOW'|'IDLE'|'EAT'|'ALERT_STARE'|'HIDE';
 type P={x:number;z:number};
 function coat(color:number,key?:string){const m=new T.MeshStandardMaterial({color,roughness:.96});if(key){m.map=characterTexture(key);m.bumpMap=m.map;m.bumpScale=.004;}return m;}
@@ -81,7 +82,7 @@ export class Lola{
  resetAlert(x:number,z:number,goal:P,look:P){this.root.position.set(x,0,z);this.root.scale.y=1;this.alertAt(goal,look);}
  private creep(dt:number,player:P){
   const p=this.root.position;this.root.scale.y=T.MathUtils.damp(this.root.scale.y,.69,10,dt);let moved=0;
-  if(Math.hypot(player.x-p.x,player.z-p.z)>.44){
+  if(Math.hypot(player.x-p.x,player.z-p.z)>(underLoft(player.x,player.z)?.24:.44)||underLoft(player.x,player.z)&&!underLoft(p.x,p.z)){
    let target:P|undefined;if(this.pass(p,player))target=player;else{this.replan-=dt;if(this.replan<=0){this.replan=.45;this.route=this.plan(p,player);}while(this.route.length&&Math.hypot(this.route[0].x-p.x,this.route[0].z-p.z)<.03)this.route.shift();target=[...this.route].reverse().find(v=>this.pass(p,v));}
    if(target){const x=target.x-p.x,z=target.z-p.z,d=Math.hypot(x,z);if(d>.005){const m=Math.min(d,1.91*dt),next={x:p.x+x*m/d,z:p.z+z*m/d};if(this.pass(p,next)){p.x=next.x;p.z=next.z;moved=m;this.root.rotation.y=yaw(this.root.rotation.y,Math.atan2(x,z),Math.min(1,dt*10));}}}
   }

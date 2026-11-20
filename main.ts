@@ -1,3 +1,5 @@
+import {initTrailer} from './ui/Trailer';
+import {IntroSlides} from './story/IntroSlides';
 import {Chapters,type StartChapter} from './ui/Chapters';
 import {inspection,type InspectId} from './story/Inspectables';
 import './style.css';
@@ -37,6 +39,8 @@ const pauseMenu=$('pause-menu'),resumeButton=$<HTMLButtonElement>('resume');
 let paused=false,ignoreUnlock=false,starting=false,options:Settings;
 function applySettings(value:Settings){options=value;controls.pointerSpeed=value.mouse;audio.setVolume(value.volume/100);audio.mix(value.sfx/100,value.music/100);renderer.toneMappingExposure=value.exposure;vhs.uniforms.strength.value={high:1,medium:.65,low:.30}[value.vhs];vhs.uniforms.scanlines.value=Number(value.scan);}
 const chapters=new Chapters(time=>beginFromMenu(time));
+initTrailer();
+const intro=new IntroSlides(()=>audio.introPulse(),()=>{audio.introEnd();resetGame('21:30');});
 const settings=new SettingsMenu(applySettings,()=>audio.uiTape(),closeSettings);
 function openSettings(){audio.start();audio.menu(true);if(paused)pauseMenu.hidden=true;document.body.classList.add('settings-open');settings.show();}
 function closeSettings(){settings.close();document.body.classList.remove('settings-open');if(paused)pauseMenu.hidden=false;$<HTMLButtonElement>(paused?'pause-settings':'home-settings').focus();audio.uiTape();}
@@ -61,15 +65,16 @@ const scan=new T.Raycaster(),vector=new T.Vector3(),beam=new T.Vector3(),sample=
 let crouched=false,saved:{p:T.Vector3;q:T.Quaternion;dog:T.Vector3;doors:{open:boolean;rotation:number}[];feet:number;flash:boolean;crouched:boolean}|undefined;
 function stopForScreen(){phoneReleasePending=phoneRelockPending=false;quietLookUntil=0;tape.clearHeart();keys.clear();captureVersion++;if(phone.visible){phone.toggle();document.body.classList.remove('phone-open');}props.close();if(document.pointerLockElement===renderer.domElement){ignoreUnlock=true;document.exitPointerLock();}cross.hidden=true;subtitle.hidden=true;audio.growl(Infinity);}
 function startInvasion(){
+ resetEncounter();
  if(saved){camera.position.copy(saved.p);camera.quaternion.copy(saved.q);crouched=saved.crouched;flash.visible=saved.flash;vertical.reset(saved.feet);house.setPower('Recibidor',true);house.doors.forEach((d,i)=>{d.open=saved!.doors[i].open;d.hinge.rotation.y=saved!.doors[i].rotation;});lola.resetAlert(saved.dog.x,saved.dog.z,WATCH,WATCH_AT);}
  keys.clear();patrol.reset();intruder.reset(entry.x,entry.z);front.open=false;front.hinge.rotation.y=front.closed;front.angle=front.closed-1.48;audio.atmosphere('alert');invasion.start();
 }
 const invasion=new InvasionStory({
  clock:setClock,key:()=>audio.keys(),cut:()=>{house.setPower('Recibidor',false);audio.breaker();},
- enter:()=>{front.open=true;intruder.root.visible=true;intruder.light.visible=true;},calm:()=>lola.hide(),thought,bark:()=>audio.bark(),
- caught:()=>{audio.caught();if(intruder.root.visible){const dir=camera.getWorldDirection(new T.Vector3());const x=camera.position.x+dir.x*.66,z=camera.position.z+dir.z*.66;intruder.root.position.set(x,camera.position.y-1.63,z);intruder.root.rotation.y=Math.atan2(-dir.x,-dir.z);}finalScreen.caught(()=>{finalScreen.close();startInvasion();state(true);capture();});stopForScreen();},
- rescue:()=>{patrol.reset();phone.receiveArrival();audio.keys();front.open=true;clearRescueSounds();for(let i=0;i<4;i++)rescueSounds.push(window.setTimeout(()=>audio.intruderStep(3-i*.47,.23,true),680+i*260));},
- ending:()=>{intruder.root.visible=false;intruder.extinguish();chapters.complete();finalScreen.ending(()=>resetGame('21:30'));stopForScreen();audio.epilogue();},
+ enter:()=>{front.open=true;intruder.root.visible=true;intruder.light.visible=true;intruder.pose(1,0,Math.PI,Math.PI,1.12,false);},calm:()=>lola.hide(),thought,bark:()=>audio.bark(),
+ caught:()=>beginChase(),
+ rescue:()=>{resetEncounter();patrol.startExit(roomAt(house,intruder.root.position),intruder.root.position);audio.tension(0);phone.receiveArrival();audio.keys();front.open=true;clearRescueSounds();for(let i=0;i<4;i++)rescueSounds.push(window.setTimeout(()=>audio.intruderStep(3-i*.47,.23,true),680+i*260));},
+ ending:()=>{intruder.root.visible=false;intruder.extinguish();finalScreen.ending(()=>resetGame('21:30'));stopForScreen();audio.epilogue();},
 });
 const rescueSounds:number[]=[];
 function clearRescueSounds(){while(rescueSounds.length)clearTimeout(rescueSounds.pop());}
@@ -78,6 +83,7 @@ function snapshot(){return{p:camera.position.clone(),q:camera.quaternion.clone()
 const baseline=snapshot();const frontDefaultAngle=front.angle;let startTimer=0,captureTimer=0;
 let chapter:'21:30'|'21:42'|'21:50'|'21:56'='21:30';const checkpoints=new Map<string,ReturnType<typeof snapshot>>();let restoring=false;
 function resetGame(time:StartChapter,play=true){
+ resetEncounter();
  clearTimeout(startTimer);clearTimeout(captureTimer);clearTimeout(subtitleTimer);clearRescueSounds();captureVersion++;
  starting=false;paused=false;dragMode=false;phoneReleasePending=phoneRelockPending=false;quietLookUntil=0;settings.close();chapters.close(false);pauseMenu.hidden=true;finalScreen.close();
  document.body.classList.remove('starting','paused','settings-open','phone-open','story-open');
@@ -96,6 +102,12 @@ function resetGame(time:StartChapter,play=true){
   lola.resetAlert(WATCH.x,WATCH.z,WATCH,WATCH_AT);story.restoreAfterPhoto();
   saved={p:p.clone(),q:camera.quaternion.clone(),dog:lola.root.position.clone(),doors:baseline.doors.map(d=>({open:d.open,rotation:d.angle})),feet:0,flash:false,crouched:false};
   startInvasion();
+ }else if(time==='21:56'){
+  camera.position.set(1.84*k,1.64,-1.18*k);camera.lookAt(0,1.55,-1.16*k);yasmin.resetPose(camera);
+  lola.root.position.set(2.20*k,0,-1.35*k);lola.hide();story.restoreAfterPhoto();
+  house.setPower('Recibidor',false);front.angle=front.closed-1.48;
+  intruder.reset(.04*k,-1.16*k);intruder.root.visible=true;intruder.light.visible=true;
+  intruder.pose(1,0,0,0,1.12,false);invasion.restartEnding();
  }else story.restartAct(time);
  capture();
 }
@@ -105,6 +117,7 @@ function beginFromMenu(time:StartChapter){
 }
 function recordAct(time:string){if(time!=='21:30'&&time!=='21:42'&&time!=='21:50'&&time!=='21:56')return;chapter=time;if(!restoring)checkpoints.set(time,snapshot());}
 function restartAct(){
+ resetEncounter();
  const cp=checkpoints.get(chapter);if(!cp)return;lastInspection=undefined;
  if(phone.visible){phone.toggle();document.body.classList.remove('phone-open');}clearRescueSounds();props.close();clearTimeout(subtitleTimer);subtitle.hidden=true;tape.clearHeart();restoring=true;
  camera.position.copy(cp.p);camera.quaternion.copy(cp.q);vertical.reset(cp.feet);crouched=cp.crouched;flash.visible=cp.flash;keys.clear();target=undefined;bob=0;chewClock=0;
@@ -124,24 +137,64 @@ phone.onWarningSent=()=>{
  if(phone.visible)togglePhone();startInvasion();
 };
 function clearSight(point:T.Vector3){
- vector.subVectors(point,intruder.light.position);const distance=vector.length();if(distance>.99*intruder.light.distance||distance<.015)return false;
+ vector.subVectors(point,intruder.light.position);const distance=vector.length();if(distance>=6||distance<.015)return false;
  beam.subVectors(intruder.beam.position,intruder.light.position).normalize();vector.divideScalar(distance);
- if(vector.dot(beam)<Math.cos(intruder.light.angle))return false;
+ if(vector.dot(beam)<=Math.cos(Math.PI/6))return false;
  scan.set(intruder.light.position,vector);scan.far=distance-.06;
- return !scan.intersectObjects(scene.children,true).some(h=>h.distance>.04&&h.object instanceof T.Mesh&&visibleObject(h.object)&&!h.object.userData.nonOccluding&&!ancestry(h.object,intruder.root)&&!ancestry(h.object,lola.root)&&!ancestry(h.object,yasmin.root)&&!(h.object.material instanceof T.Material&&h.object.material.transparent&&h.object.material.opacity<.6));
+ return !scan.intersectObjects(scene.children,true).some(h=>h.distance>.04&&h.object instanceof T.Mesh&&visibleObject(h.object)&&!h.object.userData.nonOccluding&&!ancestry(h.object,intruder.root)&&!ancestry(h.object,lola.root)&&!ancestry(h.object,yasmin.root)&&(h.object.userData.doorLeaf||!(h.object.material instanceof T.Material&&h.object.material.transparent&&h.object.material.opacity<.6)));
+}
+// The scripted patrol can resume from exactly where a failed pursuit began.
+let chase:'off'|'run'|'return'|'lunge'='off',chaseTime=0,unseen=0,chaseStep=0,lastThreat=-1;
+const trail:T.Vector3[]=[],chaseView=new T.Vector3(),attackStart=new T.Vector3(),attackRotation=new T.Quaternion(),attackAim=new T.PerspectiveCamera();
+const attackLight=new T.PointLight(0xff2c24,0,2.1,1.65);scene.add(attackLight);
+function threat(n:number){if(n!==lastThreat){lastThreat=n;audio.tension(n);}}
+function resetEncounter(){chase='off';chaseTime=unseen=chaseStep=0;trail.length=0;attackLight.intensity=0;document.body.classList.remove('intruder-lunge');threat(0);}
+function beginChase(){chase='run';chaseTime=unseen=chaseStep=0;trail.length=0;trail.push(intruder.root.position.clone());threat(1);}
+function openKidsPassage(){const d=house.kidsDoor;d.open=true;return !house.doorHit(d,.92*k,-1.16*k,.24);}
+function safelyHidden(p:T.Vector3){return crouched&&underLoft(p.x,p.z);}
+function encounter(dt:number,p:T.Vector3){
+ chaseTime+=dt;const d=intruder.root.position;
+ if(chase==='lunge'){
+  const u=Math.min(1,chaseTime/.35),ease=u*u;intruder.lunge(u);
+  intruder.face(chaseView);camera.position.copy(attackStart).lerp(chaseView,ease*.72);
+  attackAim.position.copy(camera.position);attackAim.lookAt(chaseView);camera.quaternion.copy(attackRotation).slerp(attackAim.quaternion,Math.min(1,u*5));
+  attackLight.position.copy(chaseView).lerp(camera.position,.52);attackLight.intensity=Math.sin(Math.PI*Math.min(.97,u+.15))*12;
+  if(u>=1){resetEncounter();finalScreen.caught(()=>{finalScreen.close();startInvasion();state(true);capture();});stopForScreen();}
+  return;
+ }
+ if(chase==='return'){
+  const goal=trail.at(-1);if(!goal){chase='off';invasion.resumeSearch();return;}
+  const dx=goal.x-d.x,dz=goal.z-d.z,len=Math.hypot(dx,dz);if(house.doorHit(house.kidsDoor,goal.x,goal.z,.15)&&!openKidsPassage())return;if(len<.035){d.x=goal.x;d.z=goal.z;trail.pop();return;}
+  const step=Math.min(dt*1.35,len);d.x+=step*dx/len;d.z+=step*dz/len;const yaw=Math.atan2(dx,dz);intruder.pose(dt,step,yaw,yaw,1.12,false);return;
+ }
+ const hidden=safelyHidden(p),dx=p.x-d.x,dz=p.z-d.z,len=Math.hypot(dx,dz),yaw=Math.atan2(dx,dz);
+ // The flashlight cone is for detection, not for grabbing an already spotted player.
+ if(hidden){chase='return';return;}
+ if(len<.72&&chaseTime>.16){
+  const samples=Math.max(2,Math.ceil(len/.035));let reachable=true;
+  for(let i=1;i<=samples;i++){const t=i/samples;if(house.blocked(d.x+dx*t,d.z+dz*t,.025)){reachable=false;break;}}
+  if(reachable){chase='lunge';chaseTime=0;attackStart.copy(camera.position);attackRotation.copy(camera.quaternion);intruder.root.rotation.y=yaw;intruder.extinguish();keys.clear();tape.clearHeart();document.body.classList.add('intruder-lunge');audio.caught();return;}
+ }
+ // Continue only while sight is recent; the close-range check above still respects walls and doors.
+ const visible=clearSight(sample.set(p.x,p.y-.04,p.z))||clearSight(sample.set(p.x,vertical.feet+(crouched?.45:1.03),p.z));
+ unseen=visible?0:unseen+dt;if(unseen>1.25){chase='return';return;}
+ const step=Math.min(dt*4.5,Math.max(0,len-.52)),x=d.x+step*dx/Math.max(.001,len),z=d.z+step*dz/Math.max(.001,len);
+ let moved=0;if(!house.blocked(x,z,.15)){moved=Math.hypot(x-d.x,z-d.z);d.x=x;d.z=z;if(moved>.001)trail.push(d.clone());}
+ chaseStep+=moved;if(chaseStep>=.68){chaseStep=0;audio.intruderStep(len,(-dx*right.x-dz*right.z)/Math.max(.2,len),true);}
+ intruder.pose(dt,moved,yaw,yaw,p.y*.84,true);
 }
 function playInvasion(dt:number,elapsed:number,p:T.Vector3){
- if(invasion.phase==='OFF')return;invasion.tick(Math.min(.12,elapsed));
- const escaping=invasion.phase==='ESCAPE';if(invasion.phase!=='SEARCH'&&!escaping)return;
- const pose=patrol.tick(dt,intruder.root.position,escaping);intruder.pose(dt,pose.travel,pose.facing,pose.aim,pose.aimY,escaping);
+ if(invasion.phase==='OFF')return;if(chase!=='lunge'&&invasion.shelter(Math.min(1,elapsed),safelyHidden(p)))return;if(chase!=='off'){encounter(dt,p);return;}invasion.tick(Math.min(.12,elapsed));
+ const escaping=invasion.phase==='ESCAPE';if(invasion.phase!=='SEARCH'&&!escaping){if(invasion.phase==='ENTRY')threat(.34);return;}
+ if(!escaping){const room=roomAt(house,intruder.root.position);threat(room==='Dormitorio de los niños'?.96:room==='Recibidor'?.69:.53);}
+ const pose=patrol.tick(dt,intruder.root.position,escaping,openKidsPassage);if(pose.door&&pose.door!=='kids'){const door=house.doors.find(d=>d.hinge.position.z>2.6&&d.hinge.position.z<2.7&&Math.sign(d.hinge.position.x)===(pose.door==='kitchen'?1:-1));if(door)door.open=true;}intruder.pose(dt,pose.travel,pose.facing,pose.aim,pose.aimY,escaping);
  const d=intruder.root.position,dx=d.x-p.x,dz=d.z-p.z,distance=Math.hypot(dx,dz);
  if(pose.step)audio.intruderStep(distance,(dx*right.x+dz*right.z)/Math.max(.2,distance),escaping);
  if(escaping){if(pose.done||d.z>5.22*k){intruder.root.visible=false;intruder.extinguish();}return;}
- const room=roomAt(house,p),same=!!room&&room===roomAt(house,d);
- const hidden=crouched&&underLoft(p.x,p.z);
- const sheltered=hidden||crouched&&!!room&&room!=='Recibidor'&&room!=='Dormitorio de los niños'&&!same&&!clearSight(sample.set(p.x,.69,p.z));
- const visible=!hidden&&(clearSight(sample.set(p.x,vertical.feet+(crouched?.76:1.47),p.z))||clearSight(sample.set(p.x,vertical.feet+(crouched?.45:1.03),p.z)));
- invasion.inspect({visible,phone:phone.visible&&same,central:pose.central,checked:pose.checked,hidden:sheltered});
+ const hidden=safelyHidden(p);
+ const visible=!hidden&&(clearSight(sample.set(p.x,p.y-.04,p.z))||clearSight(sample.set(p.x,vertical.feet+(crouched?.45:1.03),p.z)));
+ invasion.inspect({visible,central:pose.central,hidden});
+
 }
 function state(on:boolean){active=on;document.body.classList.toggle('active',on);cross.hidden=!on||paused;keys.clear();}
 function setPaused(on:boolean){
@@ -167,10 +220,12 @@ controls.addEventListener('unlock',()=>{
  if(phoneReleasePending){phoneReleasePending=false;ignoreUnlock=false;if(phoneRelockPending&&!phone.visible&&!paused)capture();return;}
  if(ignoreUnlock){ignoreUnlock=false;return;}if(active&&!paused&&!phone.visible&&!dragMode&&!finalScreen.open)setPaused(true);
 });
-button.onclick=()=>beginFromMenu('21:30');
+button.onclick=()=>{if(hasStarted||starting||intro.active)return;audio.start();audio.menu(false);audio.introStart();starting=true;intro.start();};
+// An automatic ending may have lost browser activation; one click can reclaim it.
+renderer.domElement.addEventListener('click',()=>{if(active&&dragMode&&!paused&&!phone.visible&&!finalScreen.open)capture();});
 function togglePhone(){
  const opening=!phone.visible;if(opening)phoneLook.copy(camera.quaternion);
- phone.toggle();document.body.classList.toggle('phone-open',opening);captureVersion++;keys.clear();
+ phone.toggle();audio.phoneMove(opening);document.body.classList.toggle('phone-open',opening);captureVersion++;keys.clear();
  if(opening){
   phoneRelockPending=false;quietLookUntil=Infinity;
   if(document.pointerLockElement===renderer.domElement){phoneReleasePending=true;document.exitPointerLock();}
@@ -183,16 +238,17 @@ function togglePhone(){
 }
 const look=new T.Euler(0,0,0,'YXZ');
 function moveLook(e:MouseEvent,scale:number){look.setFromQuaternion(camera.quaternion);look.y-=e.movementX*scale*options.mouse;look.x=T.MathUtils.clamp(look.x-e.movementY*scale*options.mouse*(options.invert?-1:1),-1.55,1.55);camera.quaternion.setFromEuler(look);}
-renderer.domElement.addEventListener('pointermove',e=>{if(dragMode&&active&&!paused&&!phone.visible&&performance.now()>=quietLookUntil&&(e.buttons&1))moveLook(e,.002/.75);});
+renderer.domElement.addEventListener('pointermove',e=>{if(dragMode&&active&&!paused&&chase!=='lunge'&&!phone.visible&&performance.now()>=quietLookUntil&&(e.buttons&1))moveLook(e,.002/.75);});
 // Capture phase: discard unlock/relock deltas before PointerLockControls sees them.
 document.addEventListener('mousemove',e=>{
  if(document.pointerLockElement!==renderer.domElement)return;
- if(phone.visible||phoneRelockPending||performance.now()<quietLookUntil){e.stopImmediatePropagation();return;}
+ if(chase==='lunge'||phone.visible||phoneRelockPending||performance.now()<quietLookUntil){e.stopImmediatePropagation();return;}
  if(options.invert&&active&&!paused){e.stopImmediatePropagation();moveLook(e,.002);}
 },true);
 function trapFocus(root:HTMLElement,e:KeyboardEvent){const list=[...root.querySelectorAll<HTMLElement>('button:not([tabindex="-1"]),input:not([type=radio]),input[type=radio]:checked')];const i=list.indexOf(document.activeElement as HTMLElement);if(!list.length)return;e.preventDefault();list[i<0?(e.shiftKey?list.length-1:0):(i+(e.shiftKey?-1:1)+list.length)%list.length].focus();}
 window.addEventListener('keydown',e=>{
- if(finalScreen.open||starting)return;
+ if(intro.active){if(e.code==='Space'||e.code==='Enter'){e.preventDefault();if(!e.repeat)intro.advance();}return;}
+ if(finalScreen.open||starting||chase==='lunge')return;
  if(chapters.open){if(e.code==='Escape'){e.preventDefault();if(!e.repeat)chapters.close();}else if(e.code==='Tab')trapFocus($('chapters-menu'),e);return;}
  if(settings.open){if(e.code==='Escape'){e.preventDefault();if(!e.repeat)closeSettings();}else if(e.code==='Tab')trapFocus($('settings-menu'),e);return;}
  if(active&&!paused&&phone.visible&&(e.code==='Escape'||e.code==='Tab')){e.preventDefault();if(!e.repeat)togglePhone();return;}
@@ -202,8 +258,8 @@ window.addEventListener('keydown',e=>{
  if(active&&props.open){if(e.code==='KeyE'||e.code==='Escape'){e.preventDefault();if(!e.repeat)props.close();return;}if(e.code==='Tab'){e.preventDefault();if(!e.repeat)props.close();}else if(!['ShiftLeft','ShiftRight'].includes(e.code))return;}
  if(active&&e.code==='Tab'){e.preventDefault();if(!e.repeat)togglePhone();return;}
  if(e.target instanceof HTMLTextAreaElement||e.target instanceof HTMLInputElement)return;
- if(active&&e.code==='Space'){e.preventDefault();if(!e.repeat&&!crouched&&!phone.visible&&!props.open&&!underLoft(camera.position.x,camera.position.z,.18))vertical.jump();return;}
- if(active&&!phone.visible&&!props.open&&!e.repeat&&(e.code==='KeyC'||e.code==='ControlLeft')){e.preventDefault();if(vertical.grounded&&(!crouched||!house.blocked(camera.position.x,camera.position.z,.18,1.72,vertical.feet)))crouched=!crouched;return;}
+ if(active&&e.code==='Space'){e.preventDefault();if(!e.repeat&&!crouched&&!phone.visible&&!props.open&&!underLoft(camera.position.x,camera.position.z,.18)&&vertical.grounded){vertical.jump();audio.jump();}return;}
+ if(active&&!phone.visible&&!props.open&&!e.repeat&&(e.code==='KeyC'||e.code==='ControlLeft')){e.preventDefault();if(vertical.grounded&&(!crouched||!house.blocked(camera.position.x,camera.position.z,.18,1.72,vertical.feet))){crouched=!crouched;audio.cloth(.9);}return;}
  if(active&&!phone.visible&&!e.repeat&&e.code==='KeyQ'){e.preventDefault();if(target===touchDog||Math.hypot(camera.position.x-lola.root.position.x,camera.position.z-lola.root.position.z)<=2.2)invasion.quiet();return;}
  if(!active||!['KeyW','KeyA','KeyS','KeyD','KeyE','KeyF','ShiftLeft','ShiftRight'].includes(e.code))return;
  e.preventDefault();keys.add(e.code);if(e.repeat)return;if(e.code==='KeyF'&&!phone.visible){flash.visible=!flash.visible;audio.flashlight(flash.visible);}if(e.code==='KeyE'&&!phone.visible)target?.use();
@@ -219,7 +275,7 @@ function lookTarget():Choice|undefined{
  ray.setFromCamera(center,camera);const hit=ray.intersectObjects(scene.children,true).find(h=>h.object instanceof T.Mesh&&h.distance>.06&&visibleObject(h.object)&&!h.object.userData.nonOccluding&&!ancestry(h.object,yasmin.root));
  if(!hit)return;if(ancestry(hit.object,lola.root))return touchDog;
  let ambientId:InspectId|undefined,legacy:{label:string;text:string}|undefined;
- for(let o:T.Object3D|null=hit.object;o;o=o.parent){const action=o.userData.storyAction as StoryAction|undefined;if(action)return {mark:action==='peephole'||action==='printer'&&story.phase!=='PHOTO_READY'?'eye':'hand',label:story.label(action),use:()=>story.use(action)};const t=targetMap.get(o);if(t)return {mark:'hand',label:t.label(),use:()=>{t.use();if(t.kind==='door')audio.door();else audio.click();syncAccent();}};
+ for(let o:T.Object3D|null=hit.object;o;o=o.parent){const action=o.userData.storyAction as StoryAction|undefined;if(action)return {mark:action==='peephole'||action==='printer'&&story.phase!=='PHOTO_READY'?'eye':'hand',label:story.label(action),use:()=>story.use(action)};const t=targetMap.get(o);if(t)return {mark:'hand',label:t.label(),use:()=>{t.use();if(t.kind==='door')audio.door(t.label().startsWith('Cerrar'));else audio.click();syncAccent();}};
   if(!legacy&&typeof o.userData.inspect==='string')legacy={text:o.userData.inspect,label:String(o.userData.inspectLabel??'Inspeccionar')};
   ambientId??=o.userData.inspectId as InspectId|undefined;
  }
@@ -232,18 +288,19 @@ function frame(now:number){
  requestAnimationFrame(frame);const elapsed=Math.max(.00001,(now-previous)/1000),dt=Math.min(.065,elapsed);previous=now;const p=camera.position;
  if(!paused)tape.tick(Math.min(1,elapsed));
  if(paused)return;
- if(active&&!finalScreen.open){
+ if(active&&!finalScreen.open&&chase==='lunge')encounter(Math.min(.35,elapsed),p);
+ else if(active&&!finalScreen.open){
   camera.getWorldDirection(forward);forward.y=0;forward.normalize();right.set(-forward.z,0,forward.x);
-  const running=!crouched&&(keys.has('ShiftLeft')||keys.has('ShiftRight'));
-  vel.set(0,0,0).addScaledVector(forward,Number(keys.has('KeyW'))-Number(keys.has('KeyS'))).addScaledVector(right,Number(keys.has('KeyD'))-Number(keys.has('KeyA'))).normalize().multiplyScalar((crouched?.83:running?2.65:1.5)*dt);
+  const sprint=keys.has('ShiftLeft')||keys.has('ShiftRight');const running=!crouched&&sprint;const stealthSprint=crouched&&sprint&&(invasion.phase==='ENTRY'||invasion.phase==='SEARCH');
+  vel.set(0,0,0).addScaledVector(forward,Number(keys.has('KeyW'))-Number(keys.has('KeyS'))).addScaledVector(right,Number(keys.has('KeyD'))-Number(keys.has('KeyA'))).normalize().multiplyScalar((crouched?(stealthSprint?1.85:.83):running?2.65:1.5)*dt);
   if(props.open||phone.visible&&invasion.phase!=='OFF')vel.set(0,0,0);
   const oldX=p.x,oldZ=p.z,r=crouched?.155:.18,height=crouched&&p.y-vertical.feet<1.04?.74:1.72,oldFeet=vertical.feet;
-  const impact=vertical.update(dt,house,p.x,p.z,r);if(impact>.55)audio.land(impact);
+  const impact=vertical.update(dt,house,p.x,p.z,r,crouched?.94:1.80);
   if(!house.blocked(p.x+vel.x,p.z,r,height,vertical.feet))p.x+=vel.x;if(!house.blocked(p.x,p.z+vel.z,r,height,vertical.feet))p.z+=vel.z;
   const travel=Math.hypot(p.x-oldX,p.z-oldZ),moving=travel>.0002;
-  if(moving&&vertical.grounded)phase+=travel*(running?6.0:6.7);bob=T.MathUtils.damp(bob,moving?(crouched?.009:running?.045:.027)*(options.bob==='low'?.33:1):0,10,dt);const eye=crouched?(underLoft(p.x,p.z,.13)?.73:.85):1.64;const relativeEye=p.y-oldFeet;p.y=vertical.feet+T.MathUtils.damp(relativeEye,eye,13,dt)+(vertical.grounded?Math.sin(phase)*bob*.22:0);
+  if(moving&&vertical.grounded)phase+=travel*(running?6.0:6.7);bob=T.MathUtils.damp(bob,moving?(crouched?.009:running?.045:.027)*(options.bob==='low'?.33:1):0,10,dt);const eye=crouched?(underLoft(p.x,p.z,.13)?.73:.85):1.64;const relativeEye=p.y-oldFeet;p.y=Math.min(house.ceilingAt(p.x,p.z)-.14,vertical.feet+T.MathUtils.damp(relativeEye,eye,13,dt)+(vertical.grounded?Math.sin(phase)*bob*.22:0));
   const room=house.rooms.find(({b:[a,b,c,d]})=>p.x>=a&&p.x<=b&&p.z>=c&&p.z<=d);
-  const hard=!!room&&['Cocina','Primer baño','Segundo baño'].includes(room.name);const foot=Math.floor(phase/(Math.PI*2));if(foot>lastStep){audio.step(hard,running,crouched);lastStep=foot;}
+  const hard=!!room&&['Cocina','Primer baño','Segundo baño'].includes(room.name);if(impact>.55)audio.land(impact,hard);const foot=Math.floor(phase/(Math.PI*2));if(foot>lastStep){audio.step(hard,running,crouched);lastStep=foot;}
   stepClock+=dt;if(stepClock>.13){audio.proximity(room?.name==='Cocina'?Math.hypot(p.x-1.65*HOUSE_PLAN_SCALE,p.z-4.1*HOUSE_PLAN_SCALE):Infinity);stepClock=0;}
   const eating=lola.state==='EAT';lola.update(dt,p,moving);yasmin.update(camera,travel/dt,phase*.5,dt,crouched,vertical.feet);
   if(eating&&lola.state!=='EAT')story.fed();
@@ -256,7 +313,7 @@ function frame(now:number){
   tape.heart(dt,closeIntruder,Number.isFinite(closeIntruder)?intruder.light.position.distanceTo(p):Infinity);
   target=phone.visible||props.open?undefined:lookTarget();reticle(cross,target?.mark??'dot');if(target)cross.setAttribute('aria-label',target.label);else cross.removeAttribute('aria-label');
  }else if(!finalScreen.open){audio.growl(Infinity);if(!hasStarted){const t=now*.00021;camera.position.set(.12*Math.sin(t),1.48+.035*Math.sin(t*.81),(3.72+.47*Math.cos(t))*k);camera.lookAt(.10*Math.sin(t*.71),1.35,-2.8*k);yasmin.root.visible=false;}else{yasmin.update(camera,0,phase,dt,crouched,vertical.feet);}house.update(dt,p.x,p.z);}
- vhs.uniforms.time.value=now/1000;composer.render();
+ vhs.uniforms.time.value=now/1000;if(!intro.active)composer.render();
 }
 reticle(cross,'dot');requestAnimationFrame(frame);
 }

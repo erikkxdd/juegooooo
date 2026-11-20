@@ -1,3 +1,4 @@
+import type {StartChapter} from './Chapters';
 import type {AudioEngine} from '../audio/AudioEngine';
 import {ERIK_FIRST,ERIK_WARNING} from '../story/StoryManager';
 const avatar=`${import.meta.env.BASE_URL}personajes/yasmin-perfil.jpg`;
@@ -20,11 +21,11 @@ export class Phone{
 
  checkpoint(){return {delivered:this.delivered,unread:this.unread,sent:this.sent.map(x=>({...x})),routineReplied:this.routineReplied};}
  restoreRoutine(snapshot:ReturnType<Phone['checkpoint']>){clearTimeout(this.timer);this.timer=this.pending=0;this.delivered=snapshot.delivered;this.unread=snapshot.unread;this.sent=snapshot.sent.map(x=>({...x}));this.routineReplied=snapshot.routineReplied;this.canWarn=this.warningSent=this.arrival=false;this.warningDraft=ERIK_WARNING;this.current='home';this.render();}
- resetForChapter(time:'21:30'|'21:42'|'21:50'){
+ resetForChapter(time:StartChapter){
   this.visible=false;this.phone.hidden=true;this.phone.classList.remove('buzz');
   try{navigator.vibrate?.(0);}catch{}
-  this.restoreRoutine({delivered:time!=='21:30',unread:time==='21:42',sent:time==='21:50'?[{text:ERIK_WARNING,time:'21:42'}]:[],routineReplied:false});
-  if(time==='21:50')this.canWarn=this.warningSent=true;this.setTime(time);
+  this.restoreRoutine({delivered:time!=='21:30',unread:time==='21:42',sent:time==='21:50'||time==='21:56'?[{text:ERIK_WARNING,time:'21:42'}]:[],routineReplied:false});
+  if(time==='21:50'||time==='21:56')this.canWarn=this.warningSent=true;this.setTime(time);
  }
  rewindArrival(){this.arrival=false;this.render();}
  receiveArrival(){if(this.arrival)return;this.arrival=true;this.unread=true;this.notify();this.render();}

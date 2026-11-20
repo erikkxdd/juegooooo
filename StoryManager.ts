@@ -54,21 +54,27 @@ export class StoryManager{
 
 export type InvasionPhase='OFF'|'ENTRY'|'SEARCH'|'ESCAPE'|'CAUGHT'|'EPILOGUE';
 export class InvasionStory{
- phase:InvasionPhase='OFF';private age=0;calmed=false;dark=false;
+ phase:InvasionPhase='OFF';private age=0;calmed=false;dark=false;private opened=false;private barked=false;private hiddenSeconds=0;
  constructor(private io:{clock:(time:string)=>void;key:()=>void;cut:()=>void;enter:()=>void;calm:()=>void;thought:(line:string)=>void;bark:()=>void;caught:()=>void;rescue:()=>void;ending:()=>void}){}
- reset(){this.phase='OFF';this.age=0;this.calmed=false;this.dark=false;}
- start(){this.phase='ENTRY';this.age=0;this.calmed=false;this.dark=false;this.io.clock('21:50');this.io.key();this.io.thought('Esa es la cerradura… Lola, ven. Tengo que escondernos bajo la litera.');}
+ reset(){this.phase='OFF';this.age=0;this.calmed=this.dark=this.opened=this.barked=false;this.hiddenSeconds=0;}
+ start(){this.reset();this.phase='ENTRY';this.io.clock('21:50');this.io.key();this.io.thought('Esa es la cerradura… Lola, ven. Tengo que escondernos bajo la litera.');}
  restartEnding(){this.phase='ESCAPE';this.age=0;this.io.clock('21:56');this.io.rescue();}
  quiet(){if(this.calmed||!(this.phase==='ENTRY'||this.phase==='SEARCH'))return;this.calmed=true;this.io.calm();this.io.thought('Shhh, Lola, ven conmigo en silencio...');}
  tick(dt:number){this.age+=dt;if(this.phase==='ENTRY'){
   if(!this.dark&&this.age>=1){this.dark=true;this.io.cut();}
-  if(this.age>=1.65){this.phase='SEARCH';this.age=0;this.io.enter();}
+  if(!this.opened&&this.age>=1.65){this.opened=true;this.age=0;this.io.enter();}
+  else if(this.opened&&this.age>=4){this.phase='SEARCH';this.age=0;}
  }else if(this.phase==='ESCAPE'&&this.age>=3){this.phase='EPILOGUE';this.io.ending();}}
- inspect({visible,phone,central,checked,hidden}:{visible:boolean;phone:boolean;central:boolean;checked:boolean;hidden:boolean}){
-  if(this.phase!=='SEARCH')return;
-  if(central&&!this.calmed){this.io.bark();this.fail();return;}
-  if(phone||visible){this.fail();return;}
-  if(checked){if(!hidden){this.io.thought('Me va a ver…');this.fail();return;}this.phase='ESCAPE';this.age=0;this.io.clock('21:56');this.io.rescue();}
+ resumeSearch(){if(this.phase==='CAUGHT')this.phase='SEARCH';}
+ shelter(dt:number,hidden:boolean){
+  if(this.phase!=='ENTRY'&&this.phase!=='SEARCH'&&this.phase!=='CAUGHT')return false;
+  this.hiddenSeconds=hidden?this.hiddenSeconds+dt:0;
+  if(this.hiddenSeconds+1e-8<20)return false;
+  this.restartEnding();return true;
  }
- private fail(){this.phase='CAUGHT';this.io.caught();}
+ inspect({visible,central,hidden}:{visible:boolean;central:boolean;hidden:boolean}){
+  if(this.phase!=='SEARCH')return;
+  if(central&&!this.calmed&&!this.barked){this.barked=true;this.io.bark();}
+  if(visible&&!hidden){this.phase='CAUGHT';this.io.caught();}
+ }
 }

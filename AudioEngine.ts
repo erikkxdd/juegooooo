@@ -4,8 +4,23 @@ export class AudioEngine{
  private ctx?:AudioContext;private master?:GainNode;private hum?:GainNode;private noise?:AudioBuffer;private growlBus?:GainNode;private growlPan?:StereoPannerNode;private ambience?:{calm:GainNode;drone:GainNode;metal:GainNode;wind:GainNode};private mood:Atmosphere='calm';
  start(){try{if(this.ctx){void this.ctx.resume().catch(()=>{});return;}const c=this.ctx=new AudioContext();this.master=c.createGain();this.master.gain.value=.48*this.volume;const limiter=c.createDynamicsCompressor();limiter.threshold.value=-9;limiter.knee.value=8;limiter.ratio.value=12;limiter.attack.value=.003;limiter.release.value=.11;this.master.connect(limiter).connect(c.destination);this.game=c.createGain();this.game.gain.value=this.duck;this.game.connect(this.master);this.sfxBus=c.createGain();this.sfxBus.gain.value=this.sfxLevel;this.sfxBus.connect(this.game);this.musicBus=c.createGain();this.musicBus.gain.value=this.musicLevel;this.musicBus.connect(this.game);this.noise=c.createBuffer(1,c.sampleRate*2,c.sampleRate);const a=this.noise.getChannelData(0);for(let i=0;i<a.length;i++)a[i]=Math.random()*2-1;const room=c.createBufferSource();room.buffer=this.noise;room.loop=true;const lp=c.createBiquadFilter();lp.type='lowpass';lp.frequency.value=340;const quiet=c.createGain();quiet.gain.value=.031;room.connect(lp).connect(quiet).connect(this.musicBus);room.start();const o=c.createOscillator(),o2=c.createOscillator(),g=this.hum=c.createGain();o.frequency.value=49.8;o.type='sine';o2.frequency.value=99.6;o2.type='triangle';const sub=c.createGain();sub.gain.value=.22;g.gain.value=0;o.connect(g);o2.connect(sub).connect(g);g.connect(this.musicBus);o.start();o2.start();this.buildAtmosphere(c);this.atmosphere(this.mood);void c.resume().catch(()=>{});}catch{/* Audio no disponible: el juego sigue funcionando. */}}
  setVolume(volume:number){this.volume=Math.max(0,Math.min(1,volume));if(this.master&&this.ctx)this.master.gain.setTargetAtTime(.48*this.volume,this.ctx.currentTime,.055);}
- mix(sfx:number,music:number){this.sfxLevel=sfx;this.musicLevel=music;if(this.ctx){this.sfxBus?.gain.setTargetAtTime(sfx,this.ctx.currentTime,.06);this.musicBus?.gain.setTargetAtTime(music,this.ctx.currentTime,.06);}}
+ mix(sfx:number,music:number){this.sfxLevel=sfx;this.musicLevel=music;if(this.ctx){this.sfxBus?.gain.setTargetAtTime(sfx,this.ctx.currentTime,.06);this.musicBus?.gain.setTargetAtTime(music,this.ctx.currentTime,.06);this.titleLayer?.music.gain.setTargetAtTime(music,this.ctx.currentTime,.06);}}
  menu(active:boolean){this.duck=active?.24:1;if(this.ctx)this.game?.gain.setTargetAtTime(this.duck,this.ctx.currentTime,.14);}
+ private titleLayer?:{gain:GainNode;music:GainNode;sources:AudioScheduledSourceNode[];timer:number};
+ titleAmbience(on:boolean){
+  const c=this.ctx,layer=this.titleLayer;
+  if(!c||!this.master||!this.noise)return;
+  const t=c.currentTime;
+  if(!on){if(!layer)return;this.titleLayer=undefined;window.clearTimeout(layer.timer);layer.gain.gain.cancelAndHoldAtTime(t);layer.gain.gain.linearRampToValueAtTime(0,t+.6);for(const source of layer.sources)source.stop(t+.61);layer.sources[0].onended=()=>layer.music.disconnect();return;}
+  if(layer)return;
+  const gain=c.createGain(),music=c.createGain();gain.gain.value=0;music.gain.value=this.musicLevel;gain.connect(music).connect(this.master);gain.gain.linearRampToValueAtTime(.18,t+.7);
+  const sources:AudioScheduledSourceNode[]=[];
+  for(const [f,v,type] of [[43.65,.48,'sine'],[45.2,.28,'sine'],[86.9,.085,'triangle']] as const){const o=c.createOscillator(),level=c.createGain();o.type=type;o.frequency.value=f;level.gain.value=v;o.connect(level).connect(gain);o.start(t);sources.push(o);}
+  const tape=c.createBufferSource(),filter=c.createBiquadFilter(),hiss=c.createGain();tape.buffer=this.noise;tape.loop=true;filter.type='bandpass';filter.frequency.value=2700;filter.Q.value=.58;hiss.gain.value=.13;tape.connect(filter).connect(hiss).connect(gain);tape.start(t);sources.push(tape);
+  const current=this.titleLayer={gain,music,sources,timer:0};
+  const pulse=()=>{if(this.titleLayer!==current)return;if(c.state==='running'){this.puff(.052,1820,.23,'bandpass',0,gain);this.tone(82,41,.30,.26,'sine',.04,gain);}current.timer=window.setTimeout(pulse,6500+Math.random()*7000);};
+  current.timer=window.setTimeout(pulse,5800);
+ }
  private introLayer?:{gain:GainNode;tones:OscillatorNode[]};
  introStart(){
   if(this.introLayer||!this.ctx||!this.musicBus)return;const c=this.ctx,gain=c.createGain(),t=c.currentTime;gain.gain.setValueAtTime(0,t);gain.gain.linearRampToValueAtTime(.13,t+.55);gain.connect(this.musicBus);
@@ -13,7 +28,7 @@ export class AudioEngine{
  }
  introPulse(){this.tone(69,36,.23,.11,'sine');this.puff(.16,150,.055,'lowpass');}
  introEnd(){const layer=this.introLayer;if(!layer||!this.ctx)return;this.introLayer=undefined;const t=this.ctx.currentTime;layer.gain.gain.cancelAndHoldAtTime(t);layer.gain.gain.linearRampToValueAtTime(0,t+.55);layer.tones.forEach(o=>o.stop(t+.56));layer.tones[0].onended=()=>layer.gain.disconnect();}
- uiHover(){this.puff(.027,1680,.10,'bandpass',0,this.master);this.tone(530,244,.043,.042,'triangle',.002,this.master);}
+ uiHover(){this.puff(.027,2100,.076,'bandpass',0,this.master);this.tone(512,182,.043,.041,'triangle',.002,this.master);this.puff(.031,720,.037,'bandpass',.028,this.master);}
  uiTape(){this.puff(.09,885,.14,'bandpass',0,this.master);this.tone(220,84,.13,.055,'triangle',.008,this.master);}
 
  inspect(){this.puff(.13,425,.033,'lowpass');this.tone(182,126,.17,.018,'sine',.022);}

@@ -1,3 +1,4 @@
+import {slideMenu} from './ui/MenuSlide';
 import {initTrailer} from './ui/Trailer';
 import {IntroSlides} from './story/IntroSlides';
 import {Chapters,type StartChapter} from './ui/Chapters';
@@ -38,15 +39,20 @@ const controls=new PointerLockControls(camera,renderer.domElement),tape=new Tape
 const pauseMenu=$('pause-menu'),resumeButton=$<HTMLButtonElement>('resume');
 let paused=false,ignoreUnlock=false,starting=false,options:Settings;
 function applySettings(value:Settings){options=value;controls.pointerSpeed=value.mouse;audio.setVolume(value.volume/100);audio.mix(value.sfx/100,value.music/100);renderer.toneMappingExposure=value.exposure;vhs.uniforms.strength.value={high:1,medium:.65,low:.30}[value.vhs];vhs.uniforms.scanlines.value=Number(value.scan);}
-const chapters=new Chapters(time=>beginFromMenu(time));
+const chapters=new Chapters(time=>beginFromMenu(time),()=>{audio.start();audio.uiTape();});
 initTrailer();
 const intro=new IntroSlides(()=>audio.introPulse(),()=>{audio.introEnd();resetGame('21:30');});
 const settings=new SettingsMenu(applySettings,()=>audio.uiTape(),closeSettings);
-function openSettings(){audio.start();audio.menu(true);if(paused)pauseMenu.hidden=true;document.body.classList.add('settings-open');settings.show();}
-function closeSettings(){settings.close();document.body.classList.remove('settings-open');if(paused)pauseMenu.hidden=false;$<HTMLButtonElement>(paused?'pause-settings':'home-settings').focus();audio.uiTape();}
+function openSettings(){audio.start();audio.menu(true);if(paused)pauseMenu.hidden=true;document.body.classList.add('settings-open');settings.show();slideMenu($('settings-menu'),true,paused?pauseMenu:undefined);}
+function closeSettings(){settings.close();document.body.classList.remove('settings-open');if(paused)pauseMenu.hidden=false;slideMenu($('settings-menu'),false,paused?pauseMenu:undefined);$<HTMLButtonElement>(paused?'pause-settings':'home-settings').focus();audio.uiTape();}
 $('home-settings').onclick=openSettings;$('pause-settings').onclick=openSettings;
-document.addEventListener('pointerover',e=>{const b=(e.target as Element).closest?.('.vhs-button');if(b&&!b.contains(e.relatedTarget as Node))audio.uiHover();});
-audio.menu(true);document.addEventListener('pointerdown',()=>{if(!hasStarted)audio.start();});
+document.addEventListener('pointerover',e=>{const b=(e.target as Element).closest?.('.vhs-button,.trailer-link');if(b&&!b.contains(e.relatedTarget as Node)){if(b.closest('#menu'))audio.start();audio.uiHover();}});
+audio.menu(true);
+const trailerPanel=$<HTMLDialogElement>('trailer-overlay');
+function titleAmbience(){if(!hasStarted&&!starting&&!trailerPanel.open){audio.start();audio.titleAmbience(true);}else audio.titleAmbience(false);}
+for(const event of ['pointerdown','keydown'] as const)document.addEventListener(event,titleAmbience);
+document.addEventListener('pointermove',()=>{if(!hasStarted&&!starting&&!trailerPanel.open)titleAmbience();},{once:true});
+new MutationObserver(titleAmbience).observe(trailerPanel,{attributes:true,attributeFilter:['open']});
 function setClock(time:string){$('tape-clock').textContent=time;phone.setTime(time);tape.chapter(time);recordAct(time);}
 let active=false,dragMode=false,captureVersion=0;
 const phoneLook=new T.Quaternion();let phoneReleasePending=false,phoneRelockPending=false,quietLookUntil=0;
@@ -96,7 +102,7 @@ function resetGame(time:StartChapter,play=true){
  invasion.reset();patrol.reset();intruder.reset(entry.x,entry.z);saved=undefined;checkpoints.clear();restoring=false;
  phone.resetForChapter(time);audio.growl(Infinity);audio.proximity(Infinity);audio.atmosphere('calm');audio.start();audio.menu(!play);
  hasStarted=play;yasmin.root.visible=play;state(play);reticle(cross,'dot');
- if(!play){if(document.pointerLockElement===renderer.domElement){ignoreUnlock=true;document.exitPointerLock();}chapter='21:30';$('tape-clock').textContent=chapter;button.focus();return;}
+ if(!play){if(document.pointerLockElement===renderer.domElement){ignoreUnlock=true;document.exitPointerLock();}chapter='21:30';$('tape-clock').textContent=chapter;titleAmbience();button.focus();return;}
  if(time==='21:50'){
   const p=camera.position;p.set(.03*k,1.64,-.19*k);camera.lookAt(0,1.58,-2.15*k);yasmin.resetPose(camera);
   lola.resetAlert(WATCH.x,WATCH.z,WATCH,WATCH_AT);story.restoreAfterPhoto();
@@ -111,10 +117,14 @@ function resetGame(time:StartChapter,play=true){
  }else story.restartAct(time);
  capture();
 }
-function beginFromMenu(time:StartChapter){
- if(hasStarted||starting)return;starting=true;audio.start();audio.uiTape();document.body.classList.add('starting');
- startTimer=window.setTimeout(()=>resetGame(time),450);
+let menuPushAt=0;
+function menuTransition(done:()=>void,lock=false){
+ if(hasStarted||starting)return;
+ starting=true;menuPushAt=performance.now();audio.start();audio.titleAmbience(false);audio.uiTape();document.body.classList.add('starting');
+ if(lock)capture(); // Use the chapter click's activation before the transition timer.
+ startTimer=window.setTimeout(done,850);
 }
+function beginFromMenu(time:StartChapter){menuTransition(()=>resetGame(time),true);}
 function recordAct(time:string){if(time!=='21:30'&&time!=='21:42'&&time!=='21:50'&&time!=='21:56')return;chapter=time;if(!restoring)checkpoints.set(time,snapshot());}
 function restartAct(){
  resetEncounter();
@@ -220,7 +230,7 @@ controls.addEventListener('unlock',()=>{
  if(phoneReleasePending){phoneReleasePending=false;ignoreUnlock=false;if(phoneRelockPending&&!phone.visible&&!paused)capture();return;}
  if(ignoreUnlock){ignoreUnlock=false;return;}if(active&&!paused&&!phone.visible&&!dragMode&&!finalScreen.open)setPaused(true);
 });
-button.onclick=()=>{if(hasStarted||starting||intro.active)return;audio.start();audio.menu(false);audio.introStart();starting=true;intro.start();};
+button.onclick=()=>menuTransition(()=>{audio.menu(false);audio.introStart();intro.start();document.body.classList.remove('starting');});
 // An automatic ending may have lost browser activation; one click can reclaim it.
 renderer.domElement.addEventListener('click',()=>{if(active&&dragMode&&!paused&&!phone.visible&&!finalScreen.open)capture();});
 function togglePhone(){
@@ -283,6 +293,10 @@ function lookTarget():Choice|undefined{
  if(ambientId){const id=ambientId;const act=chapter==='21:30'?1:chapter==='21:42'?2:chapter==='21:50'?3:4;const entry=inspection(id,{act,seenPhoto:story.phase==='ALERT'});if(entry)return {mark:'eye',label:entry.label,use:()=>{if(lastInspection!==id)audio.inspect();lastInspection=id;thought(entry.text);}};}
 
 }
+const dust=document.querySelector('.menu-dust')!;
+for(let i=0;i<24;i++){
+ const mote=document.createElement('i');mote.style.cssText=`--x:${42+(i*31)%39}%;--y:${16+(i*47)%62}%;--w:${1+(i*17)%4}px;--cycle:${8+(i*31)%11}s;--delay:-${(i*37)%17}s;--drift:${(i%2?1:-1)*(8+i%18)}px`;dust.append(mote);
+}
 let previous=performance.now(),phase=0,bob=0,lastStep=0,stepClock=0,chewClock=0;
 function frame(now:number){
  requestAnimationFrame(frame);const elapsed=Math.max(.00001,(now-previous)/1000),dt=Math.min(.065,elapsed);previous=now;const p=camera.position;
@@ -315,6 +329,6 @@ function frame(now:number){
  }else if(!finalScreen.open){audio.growl(Infinity);if(!hasStarted){const t=now*.00021;camera.position.set(.12*Math.sin(t),1.48+.035*Math.sin(t*.81),(3.72+.47*Math.cos(t))*k);camera.lookAt(.10*Math.sin(t*.71),1.35,-2.8*k);yasmin.root.visible=false;}else{yasmin.update(camera,0,phase,dt,crouched,vertical.feet);}house.update(dt,p.x,p.z);}
  vhs.uniforms.time.value=now/1000;if(!intro.active)composer.render();
 }
-reticle(cross,'dot');requestAnimationFrame(frame);
+reticle(cross,'dot');titleAmbience();requestAnimationFrame(frame);
 }
 try{boot();}catch(err){console.error(err);$('status').textContent='NO SE PUDO INICIAR WEBGL. ACTIVA LA ACELERACIÓN GRÁFICA.';$<HTMLButtonElement>('start').disabled=true;}

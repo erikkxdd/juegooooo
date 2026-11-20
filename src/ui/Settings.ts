@@ -16,14 +16,21 @@ export class SettingsMenu{
   this.body.replaceChildren();
   if(i===0){this.range('mouse','Sensibilidad del ratón',.2,2.5,.05,(v)=>`${v.toFixed(2)}x`);this.choice('invert','Invertir eje Y',[[false,'No'],[true,'Sí']]);this.choice('bob','Balanceo al caminar',[['low','Bajo'],['normal','Normal']]);const keys=document.createElement('dl');keys.className='vhs-keys';for(const [key,action] of [['WASD','Moverse'],['Shift','Correr'],['C / Ctrl','Agacharse'],['Espacio','Saltar'],['E','Interactuar'],['Q','Calmar a Lola'],['F','Linterna'],['Tab','Móvil']]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=key;dd.textContent=action;keys.append(dt,dd);}this.body.append(keys);}
   if(i===1){for(const [key,label] of [['volume','Volumen general'],['sfx','Volumen SFX'],['music','Volumen Música / Atmósfera']] as const)this.range(key,label,0,100,1,v=>`${v}%`);}
-  if(i===2){this.choice('vhs','Intensidad VHS',[['high','Alto'],['medium','Medio'],['low','Bajo']]);this.choice('scan','Líneas de escaneo CRT',[[true,'Activado'],[false,'Desactivado']]);this.range('exposure','Brillo / Exposición',.65,1.85,.05,v=>`${v.toFixed(2)}x`);}
+  if(i===2){this.grain();this.choice('scan','Líneas de escaneo CRT',[[true,'Activado'],[false,'Desactivado']]);this.range('exposure','Brillo / Exposición',.65,1.85,.05,v=>`${v.toFixed(2)}x`);}
   if(animate){this.panel.classList.remove('settings-track');void this.panel.offsetWidth;this.panel.classList.add('settings-track');this.track();}
  }
+ private grain(){
+  const levels=['low','medium','high'] as const;
+  this.slider('vhs','Grano VHS',1,3,1,levels.indexOf(this.value.vhs)+1,n=>`${n} / 3`,n=>{this.value.vhs=levels[n-1];});
+ }
  private range<K extends 'mouse'|'volume'|'sfx'|'music'|'exposure'>(k:K,text:string,min:number,max:number,step:number,format:(n:number)=>string){
-  const row=document.createElement('div');row.className='vhs-setting';const label=document.createElement('label'),input=document.createElement('input'),bar=document.createElement('span'),value=document.createElement('output');
-  label.textContent=text;input.id=`option-${k}`;label.htmlFor=input.id;input.type='range';input.min=String(min);input.max=String(max);input.step=String(step);input.value=String(this.value[k]);bar.className='signal-bar';bar.ariaHidden='true';value.htmlFor=input.id;
-  const update=()=>{const n=Number(input.value),s=Math.round(12*(n-min)/(max-min));bar.textContent=`[${'■'.repeat(s)}${'□'.repeat(12-s)}]`;value.textContent=format(n);input.setAttribute('aria-valuetext',value.textContent);};
-  input.oninput=()=>{this.value[k]=Number(input.value);update();this.commit();};update();const control=document.createElement('div');control.className='signal-control';control.append(input,bar,value);row.append(label,control);this.body.append(row);
+  this.slider(k,text,min,max,step,this.value[k],format,n=>{this.value[k]=n;});
+ }
+ private slider(k:string,text:string,min:number,max:number,step:number,initial:number,format:(n:number)=>string,set:(n:number)=>void){
+  const row=document.createElement('div');row.className='vhs-setting';const label=document.createElement('label'),input=document.createElement('input'),value=document.createElement('output');
+  label.textContent=text;input.id=`option-${k}`;label.htmlFor=input.id;input.type='range';input.min=String(min);input.max=String(max);input.step=String(step);input.value=String(initial);value.htmlFor=input.id;
+  const update=()=>{const n=Number(input.value);input.style.setProperty('--signal',`${100*(n-min)/(max-min)}%`);value.textContent=format(n);input.setAttribute('aria-valuetext',value.textContent);};
+  input.oninput=()=>{set(Number(input.value));update();this.commit();};update();const control=document.createElement('div');control.className='signal-control';control.append(input,value);row.append(label,control);this.body.append(row);
  }
  private choice<K extends keyof Settings>(k:K,text:string,options:[Settings[K],string][]){const row=document.createElement('fieldset'),legend=document.createElement('legend'),group=document.createElement('div');row.className='vhs-setting';legend.textContent=text;group.className='vhs-options';for(const [value,label] of options){const wrap=document.createElement('label'),input=document.createElement('input'),span=document.createElement('span');input.type='radio';input.name=k;input.checked=this.value[k]===value;span.textContent=label;input.onchange=()=>{if(input.checked){this.value[k]=value;this.commit();}};wrap.append(input,span);group.append(wrap);}row.append(legend,group);this.body.append(row);}
 }
